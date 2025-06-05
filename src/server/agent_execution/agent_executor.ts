@@ -11,4 +11,16 @@ export interface AgentExecutor {
         requestContext: RequestContext,
         eventBus: IExecutionEventBus
     ) => Promise<void>;
+
+    /**
+     * Method to explicitly cancel a running task.
+     * The implementation should handle the logic of stopping the execution
+     * and publishing the final 'canceled' status event on the provided event bus.
+     * @param taskId The ID of the task to cancel.
+     * @param eventBus The event bus associated with the task's execution.
+     */
+    cancelTask: (
+        taskId: string,
+        eventBus: IExecutionEventBus
+    ) => Promise<void>;
 }

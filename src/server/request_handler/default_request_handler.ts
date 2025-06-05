@@ -16,7 +16,6 @@ export class DefaultRequestHandler implements A2ARequestHandler {
     private agentExecutor: AgentExecutor;
     private waitForAgentOnTaskCancellation: boolean;
     private eventBusManager: ExecutionEventBusManager;
-    private cancelledTasks: Set<string> = new Set();
     // Store for push notification configurations (could be part of TaskStore or separate)
     private pushNotificationConfigs: Map<string, PushNotificationConfig> = new Map();
 
@@ -25,12 +24,10 @@ export class DefaultRequestHandler implements A2ARequestHandler {
         agentCard: AgentCard,
         taskStore: TaskStore,
         agentExecutor: AgentExecutor,
-        waitForAgentOnTaskCancellation: boolean = true,
     ) {
         this.agentCard = agentCard;
         this.taskStore = taskStore;
         this.agentExecutor = agentExecutor;
-        this.waitForAgentOnTaskCancellation = waitForAgentOnTaskCancellation;
         this.eventBusManager = new ExecutionEventBusManager();
     }
 
@@ -73,19 +70,8 @@ export class DefaultRequestHandler implements A2ARequestHandler {
             messageForContext.contextId = task?.contextId || uuidv4();
         }
 
-        const cancellationChecker = (): boolean => {
-            // Check if a task being managed by the ResultManager (potentially created later)
-            // has been explicitly cancelled.
-            const currentProcessingTask = resultManager.getCurrentTask();
-            if (currentProcessingTask?.id && this.cancelledTasks.has(currentProcessingTask.id)) {
-                return true;
-            }
-            return false;
-        };
-
         return new RequestContext(
             messageForContext,
-            cancellationChecker,
             task,
             referenceTasks
         );
@@ -274,10 +260,12 @@ export class DefaultRequestHandler implements A2ARequestHandler {
             throw A2AError.taskNotCancelable(params.id);
         }
 
-        // This would signal the agent executor that the task has been marked canceled.
-        this.cancelledTasks.add(params.id);
-
-        if (!this.waitForAgentOnTaskCancellation) {
+        const eventBus = this.eventBusManager.getByTaskId(params.id);
+        
+        if(eventBus) {
+            await this.agentExecutor.cancelTask(params.id, eventBus);
+        }
+        else {
             // Here we are marking task as cancelled. We are not waiting for the executor to actually cancel processing.
             task.status = {
                 state: TaskState.Canceled,

@@ -15,10 +15,11 @@ export type AgentExecutionEvent =
 
 export interface IExecutionEventBus {
     publish(event: AgentExecutionEvent): void;
-    on(eventName: 'event', listener: (event: AgentExecutionEvent) => void): this;
-    off(eventName: 'event', listener: (event: AgentExecutionEvent) => void): this;
-    once(eventName: 'event', listener: (event: AgentExecutionEvent) => void): this;
-    removeAllListeners(eventName?: 'event'): this;
+    on(eventName: 'event' | 'finished', listener: (event: AgentExecutionEvent) => void): this;
+    off(eventName: 'event' | 'finished', listener: (event: AgentExecutionEvent) => void): this;
+    once(eventName: 'event' | 'finished', listener: (event: AgentExecutionEvent) => void): this;
+    removeAllListeners(eventName?: 'event' | 'finished'): this;
+    finished(): void;
 }
 
 export class ExecutionEventBus extends EventEmitter implements IExecutionEventBus {
@@ -28,5 +29,9 @@ export class ExecutionEventBus extends EventEmitter implements IExecutionEventBu
 
     publish(event: AgentExecutionEvent): void {
         this.emit('event', event);
+    }
+
+    finished(): void {
+        this.emit('finished');
     }
 }

@@ -17,17 +17,21 @@ export class ExecutionEventQueue {
 
     constructor(eventBus: IExecutionEventBus) {
         this.eventBus = eventBus;
-        this.boundHandleEvent = this.handleEvent.bind(this);
-        this.eventBus.on('event', this.boundHandleEvent);
+        this.eventBus.on('event', this.handleEvent);
+        this.eventBus.on('finished', this.handleFinished);
     }
 
-    private handleEvent(event: AgentExecutionEvent): void {
+    private handleEvent = (event: AgentExecutionEvent) => {
         if (this.stopped) return;
         this.eventQueue.push(event);
         if (this.resolvePromise) {
             this.resolvePromise();
             this.resolvePromise = undefined;
         }
+    }
+
+    private handleFinished = () => {
+        this.stop();
     }
 
     /**
@@ -43,7 +47,7 @@ export class ExecutionEventQueue {
                     event.kind === 'status-update' &&
                     (event as TaskStatusUpdateEvent).final
                 )) {
-                    this.stop();
+                    this.handleFinished();
                     break;
                 }
             } else {
