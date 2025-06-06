@@ -4,7 +4,7 @@ import { Message, AgentCard, PushNotificationConfig, Task, MessageSendParams, Ta
 import { AgentExecutor } from "../agent_execution/agent_executor.js";
 import { RequestContext } from "../agent_execution/request_context.js";
 import { A2AError } from "../error.js";
-import { ExecutionEventBusManager } from "../events/execution_event_bus_manager.js";
+import { ExecutionEventBusManager, IExecutionEventBusManager } from "../events/execution_event_bus_manager.js";
 import { ExecutionEventQueue } from "../events/execution_event_queue.js";
 import { ResultManager } from "../result_manager.js";
 import { TaskStore } from "../store.js";
@@ -14,8 +14,7 @@ export class DefaultRequestHandler implements A2ARequestHandler {
     private agentCard: AgentCard;
     private taskStore: TaskStore;
     private agentExecutor: AgentExecutor;
-    private waitForAgentOnTaskCancellation: boolean;
-    private eventBusManager: ExecutionEventBusManager;
+    private eventBusManager: IExecutionEventBusManager;
     // Store for push notification configurations (could be part of TaskStore or separate)
     private pushNotificationConfigs: Map<string, PushNotificationConfig> = new Map();
 
@@ -24,11 +23,12 @@ export class DefaultRequestHandler implements A2ARequestHandler {
         agentCard: AgentCard,
         taskStore: TaskStore,
         agentExecutor: AgentExecutor,
+        eventBusManager: IExecutionEventBusManager = new ExecutionEventBusManager(),
     ) {
         this.agentCard = agentCard;
         this.taskStore = taskStore;
         this.agentExecutor = agentExecutor;
-        this.eventBusManager = new ExecutionEventBusManager();
+        this.eventBusManager = eventBusManager;
     }
 
     async getAgentCard(): Promise<AgentCard> {
@@ -283,22 +283,10 @@ export class DefaultRequestHandler implements A2ARequestHandler {
             task.history = [...(task.history || []), task.status.message];
 
             await this.taskStore.save({ task, history: task.history || [] });
-
-            // Notify active execution if any
-            const eventBus = this.eventBusManager.getByTaskId(params.id);
-            if (eventBus) {
-                // This should be captured by ResultManager.
-                eventBus.publish({
-                    kind: 'status-update',
-                    taskId: task.id,
-                    contextId: task.contextId,
-                    status: task.status,
-                    final: true, // Cancellation is a final state for this execution path
-                } as TaskStatusUpdateEvent);
-            }
         }
-
-        return task;
+        
+        const latestTaskAndHistory = await this.taskStore.load(params.id);
+        return latestTaskAndHistory.task;
     }
 
     async setTaskPushNotificationConfig(

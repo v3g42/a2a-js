@@ -14,7 +14,6 @@ export class ExecutionEventQueue {
     private stopped: boolean = false;
     private boundHandleEvent: (event: AgentExecutionEvent) => void;
 
-
     constructor(eventBus: IExecutionEventBus) {
         this.eventBus = eventBus;
         this.eventBus.on('event', this.handleEvent);
@@ -39,7 +38,7 @@ export class ExecutionEventQueue {
      * Stops when a Message event is received or a TaskStatusUpdateEvent with final=true is received.
      */
     public async *events(): AsyncGenerator<AgentExecutionEvent, void, undefined> {
-        while (!this.stopped) {
+        while (!this.stopped || this.eventQueue.length > 0) {
             if (this.eventQueue.length > 0) {
                 const event = this.eventQueue.shift()!;
                 yield event;
@@ -50,7 +49,7 @@ export class ExecutionEventQueue {
                     this.handleFinished();
                     break;
                 }
-            } else {
+            } else if(!this.stopped) {
                 await new Promise<void>((resolve) => {
                     this.resolvePromise = resolve;
                 });
@@ -68,6 +67,7 @@ export class ExecutionEventQueue {
             this.resolvePromise = undefined;
         }
 
-        this.eventBus.off('event', this.boundHandleEvent);
+        this.eventBus.off('event', this.handleEvent);
+        this.eventBus.off('finished', this.handleFinished);
     }
 }

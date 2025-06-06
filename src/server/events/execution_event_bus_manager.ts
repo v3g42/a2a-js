@@ -1,6 +1,13 @@
 import { ExecutionEventBus, IExecutionEventBus } from "./execution_event_bus.js";
 
-export class ExecutionEventBusManager {
+export interface IExecutionEventBusManager {
+    createOrGetByMessageId(messageId: string): IExecutionEventBus;
+    associateTask(taskId: string, messageId: string): void;
+    getByTaskId(taskId: string): IExecutionEventBus | undefined;
+    cleanupByMessageId(messageId: string): void;
+}
+
+export class ExecutionEventBusManager implements IExecutionEventBusManager {
     private messageIdToBus: Map<string, IExecutionEventBus> = new Map();
     private taskIdToMessageId: Map<string, string> = new Map();
 
