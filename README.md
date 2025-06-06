@@ -1,4 +1,4 @@
-# A2A Python SDK
+# A2A Javascript SDK
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
