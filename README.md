@@ -1,33 +1,407 @@
-# JavaScript Samples
+# A2A Python SDK
 
-The provided samples are built using [Genkit](https://genkit.dev/) using the Gemini API.
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## Agents
+<!-- markdownlint-disable no-inline-html -->
 
-- [Movie Agent](src/agents/movie-agent/README.md): Uses TMDB API to search for movie information and answer questions.
-- [Coder Agent](src/agents/coder/README.md): Generates full code files as artifacts.
+<html>
+   <h2 align="center">
+   <img src="https://raw.githubusercontent.com/google-a2a/A2A/refs/heads/main/docs/assets/a2a-logo-black.svg" width="256" alt="A2A Logo"/>
+   </h2>
+   <h3 align="center">A Javascript library that helps run agentic applications as A2AServers following the <a href="https://google-a2a.github.io/A2A">Agent2Agent (A2A) Protocol</a>.</h3>
+</html>
 
-## Testing the Agents
+<!-- markdownlint-enable no-inline-html -->
 
-First, follow the instructions in the agent's README file, then run `npx tsx ./cli.ts` to start up a command-line client to talk to the agents. Example:
+## Installation
 
-1. Navigate to the samples/js directory:
-    ```bash
-    cd samples/js
-    ```
-2. Run npm install:
-    ```bash
-    npm install
-    ```
-3. Run an agent:
+You can install the A2A SDK using either `npm`.
+
 ```bash
-export GEMINI_API_KEY=<your_api_key>
-npm run agents:coder
-
-# in a separate terminal
-npm run a2a:cli
+npm install a2a-sdk
 ```
----
-**NOTE:** 
-This is sample code and not production-quality libraries.
----
+
+You can also find JavaScript samples [here](https://github.com/google-a2a/a2a-samples/tree/main/samples/js).
+
+## A2A Server
+
+This directory contains a TypeScript server implementation for the Agent-to-Agent (A2A) communication protocol, built using Express.js.
+
+### 1. Define Agent Card
+```typescript
+import { AgentCard } from "a2a-sdk";
+
+const movieAgentCard: AgentCard = {
+  name: 'Movie Agent',
+  description: 'An agent that can answer questions about movies and actors using TMDB.',
+  // Adjust the base URL and port as needed. /a2a is the default base in A2AExpressApp
+  url: 'http://localhost:41241/', // Example: if baseUrl in A2AExpressApp 
+  provider: {
+    organization: 'A2A Samples',
+    url: 'https://example.com/a2a-samples' // Added provider URL
+  },
+  version: '0.0.2', // Incremented version
+  capabilities: {
+    streaming: true, // The new framework supports streaming
+    pushNotifications: false, // Assuming not implemented for this agent yet
+    stateTransitionHistory: true, // Agent uses history
+  },
+  // authentication: null, // Property 'authentication' does not exist on type 'AgentCard'.
+  securitySchemes: undefined, // Or define actual security schemes if any
+  security: undefined,
+  defaultInputModes: ['text'],
+  defaultOutputModes: ['text', 'task-status'], // task-status is a common output mode
+  skills: [
+    {
+      id: 'general_movie_chat',
+      name: 'General Movie Chat',
+      description: 'Answer general questions or chat about movies, actors, directors.',
+      tags: ['movies', 'actors', 'directors'],
+      examples: [
+        'Tell me about the plot of Inception.',
+        'Recommend a good sci-fi movie.',
+        'Who directed The Matrix?',
+        'What other movies has Scarlett Johansson been in?',
+        'Find action movies starring Keanu Reeves',
+        'Which came out first, Jurassic Park or Terminator 2?',
+      ],
+      inputModes: ['text'], // Explicitly defining for skill
+      outputModes: ['text', 'task-status'] // Explicitly defining for skill
+    },
+  ],
+  supportsAuthenticatedExtendedCard: false,
+};
+```
+
+### 2. Define Agent Executor
+```typescript
+import {
+  InMemoryTaskStore,
+  TaskStore,
+  A2AExpressApp,
+  AgentExecutor,
+  RequestContext,
+  IExecutionEventBus,
+  DefaultRequestHandler,
+} from "a2a-sdk";
+
+// 1. Define your agent's logic as a AgentExecutor
+class MyAgentExecutor implements AgentExecutor {
+  private cancelledTasks = new Set<string>();
+
+  public cancelTask = async (
+        taskId: string,
+        eventBus: IExecutionEventBus,
+    ): Promise<void> => {
+        this.cancelledTasks.add(taskId);
+        // The execute loop is responsible for publishing the final state
+    };
+
+  async execute(
+    requestContext: RequestContext,
+    eventBus: IExecutionEventBus
+  ): Promise<void> {
+    const userMessage = requestContext.userMessage;
+    const existingTask = requestContext.task;
+
+    const taskId = existingTask?.id || uuidv4();
+    const contextId = userMessage.contextId || existingTask?.contextId || uuidv4();
+
+    console.log(
+      `[MyAgentExecutor] Processing message ${userMessage.messageId} for task ${taskId} (context: ${contextId})`
+    );
+
+    // 1. Publish initial Task event if it's a new task
+    if (!existingTask) {
+      const initialTask: Task = {
+        kind: 'task',
+        id: taskId,
+        contextId: contextId,
+        status: {
+          state: TaskState.Submitted,
+          timestamp: new Date().toISOString(),
+        },
+        history: [userMessage],
+        metadata: userMessage.metadata,
+        artifacts: [], // Initialize artifacts array
+      };
+      eventBus.publish(initialTask);
+    }
+
+    // 2. Publish "working" status update
+    const workingStatusUpdate: TaskStatusUpdateEvent = {
+      kind: 'status-update',
+      taskId: taskId,
+      contextId: contextId,
+      status: {
+        state: TaskState.Working,
+        message: {
+          kind: 'message',
+          role: 'agent',
+          messageId: uuidv4(),
+          parts: [{ kind: 'text', text: 'Generating code...' }],
+          taskId: taskId,
+          contextId: contextId,
+        },
+        timestamp: new Date().toISOString(),
+      },
+      final: false,
+    };
+    eventBus.publish(workingStatusUpdate);
+
+    // Simulate work...
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Check for request cancellation
+    if (this.cancelledTasks.has(taskId)) {
+      console.log(`[MyAgentExecutor] Request cancelled for task: ${taskId}`);
+      const cancelledUpdate: TaskStatusUpdateEvent = {
+        kind: 'status-update',
+        taskId: taskId,
+        contextId: contextId,
+        status: {
+          state: TaskState.Canceled,
+          timestamp: new Date().toISOString(),
+        },
+        final: true,
+      };
+      eventBus.publish(cancelledUpdate);
+      return;
+    }
+
+    // 3. Publish artifact update
+    const artifactUpdate: TaskArtifactUpdateEvent = {
+      kind: 'artifact-update',
+      taskId: taskId,
+      contextId: contextId,
+      artifact: {
+        artifactId: "artifact-1",
+        name: "artifact-1",
+        parts: [{ text: `Task ${context.task.id} completed.` }],
+      },
+      append: false, // Each emission is a complete file snapshot
+      lastChunk: true, // True for this file artifact
+    };
+    eventBus.publish(artifactUpdate);
+
+    // 4. Publish final status update
+    const finalUpdate: TaskStatusUpdateEvent = {
+      kind: 'status-update',
+      taskId: taskId,
+      contextId: contextId,
+      status: {
+        state: TaskState.Completed,
+        message: {
+          kind: 'message',
+          role: 'agent',
+          messageId: uuidv4(),
+          taskId: taskId,
+          contextId: contextId,
+        },
+        timestamp: new Date().toISOString(),
+      },
+      final: true,
+    };
+    eventBus.publish(finalUpdate);
+  }
+}
+```
+
+### 3. Start the server
+```typescript
+const taskStore: TaskStore = new InMemoryTaskStore();
+const agentExecutor: AgentExecutor = new MyAgentExecutor();
+
+const requestHandler = new DefaultRequestHandler(
+  coderAgentCard,
+  taskStore,
+  agentExecutor
+);
+
+const appBuilder = new A2AExpressApp(requestHandler);
+const expressApp = appBuilder.setupRoutes(express(), '');
+
+const PORT = process.env.CODER_AGENT_PORT || 41242; // Different port for coder agent
+expressApp.listen(PORT, () => {
+  console.log(`[MyAgent] Server using new framework started on http://localhost:${PORT}`);
+  console.log(`[MyAgent] Agent Card: http://localhost:${PORT}/.well-known/agent.json`);
+  console.log('[MyAgent] Press Ctrl+C to stop the server');
+});
+```
+
+## A2A Client 
+
+There's a `A2AClient` class, which provides methods for interacting with an A2A server over HTTP using JSON-RPC.
+
+### Key Features:
+
+- **JSON-RPC Communication:** Handles sending requests and receiving responses (both standard and streaming via Server-Sent Events) according to the JSON-RPC 2.0 specification.
+- **A2A Methods:** Implements standard A2A methods like `sendTask`, `sendTaskSubscribe`, `getTask`, `cancelTask`, `setTaskPushNotification`, `getTaskPushNotification`, and `resubscribeTask`.
+- **Error Handling:** Provides basic error handling for network issues and JSON-RPC errors.
+- **Streaming Support:** Manages Server-Sent Events (SSE) for real-time task updates (`sendTaskSubscribe`, `resubscribeTask`).
+- **Extensibility:** Allows providing a custom `fetch` implementation for different environments (e.g., Node.js).
+
+### Basic Usage
+
+```typescript
+import {
+  A2AClient,
+  Message,
+  MessageSendParams,
+  Task,
+  TaskQueryParams,
+  SendMessageResponse,
+  GetTaskResponse,
+  SendMessageSuccessResponse,
+  GetTaskSuccessResponse
+} from "a2a-sdk";
+import { v4 as uuidv4 } from "uuid";
+
+const client = new A2AClient("http://localhost:41241"); // Replace with your server URL
+
+async function run() {
+  const messageId = uuidv4();
+  let taskId: string | undefined;
+
+  try {
+    // 1. Send a message to the agent.
+    const sendParams: MessageSendParams = {
+      message: {
+        messageId: messageId,
+        role: "user",
+        parts: [{ kind: "text", text: "Hello, agent!" }],
+        kind: "message"
+      },
+      configuration: {
+        blocking: true,
+        acceptedOutputModes: ['text/plain']
+      }
+    };
+    
+    const sendResponse: SendMessageResponse = await client.sendMessage(sendParams);
+
+    if (sendResponse.error) {
+        console.error("Error sending message:", sendResponse.error);
+        return;
+    }
+
+    // On success, the result can be a Task or a Message. Check which one it is.
+    const result = (sendResponse as SendMessageSuccessResponse).result;
+
+    if (result.kind === 'task') {
+        // The agent created a task.
+        const taskResult = result as Task;
+        console.log("Send Message Result (Task):", taskResult);
+        taskId = taskResult.id; // Save the task ID for the next call
+    } else if (result.kind === 'message') {
+        // The agent responded with a direct message.
+        const messageResult = result as Message;
+        console.log("Send Message Result (Direct Message):", messageResult);
+        // No task was created, so we can't get task status.
+    }
+
+    // 2. If a task was created, get its status.
+    if (taskId) {
+        const getParams: TaskQueryParams = { id: taskId };
+        const getResponse: GetTaskResponse = await client.getTask(getParams);
+
+        if (getResponse.error) {
+            console.error(`Error getting task ${taskId}:`, getResponse.error);
+            return;
+        }
+        
+        const getTaskResult = (getResponse as GetTaskSuccessResponse).result;
+        console.log("Get Task Result:", getTaskResult);
+    }
+
+  } catch (error) {
+    console.error("A2A Client Communication Error:", error);
+  }
+}
+
+run();
+```
+
+### Streaming Usage
+
+```typescript
+import {
+  A2AClient,
+  TaskStatusUpdateEvent,
+  TaskArtifactUpdateEvent,
+  MessageSendParams,
+  Task,
+  Message,
+} from "a2a-sdk";
+import { v4 as uuidv4 } from "uuid";
+
+const client = new A2AClient("http://localhost:41241");
+
+async function streamTask() {
+  const messageId = uuidv4();
+  try {
+    console.log(`\n--- Starting streaming task for message ${messageId} ---`);
+    
+    // Construct the `MessageSendParams` object.
+    const streamParams: MessageSendParams = {
+      message: {
+        messageId: messageId,
+        role: "user",
+        parts: [{ kind: "text", text: "Stream me some updates!" }],
+        kind: "message"
+      },
+    };
+    
+    // Use the `sendMessageStream` method.
+    const stream = client.sendMessageStream(streamParams);
+    let currentTaskId: string | undefined;
+
+    for await (const event of stream) {
+      // The first event is often the Task object itself, establishing the ID.
+      if ((event as Task).kind === 'task') {
+          currentTaskId = (event as Task).id;
+          console.log(`[${currentTaskId}] Task created. Status: ${(event as Task).status.state}`);
+          continue;
+      }
+      
+      // Differentiate subsequent stream events.
+      if ((event as TaskStatusUpdateEvent).kind === 'status-update') {
+        const statusEvent = event as TaskStatusUpdateEvent;
+        console.log(
+          `[${statusEvent.taskId}] Status Update: ${statusEvent.status.state} - ${
+            statusEvent.status.message?.parts[0]?.text ?? ""
+          }`
+        );
+        if (statusEvent.final) {
+          console.log(`[${statusEvent.taskId}] Stream marked as final.`);
+          break; // Exit loop when server signals completion
+        }
+      } else if ((event as TaskArtifactUpdateEvent).kind === 'artifact-update') {
+        const artifactEvent = event as TaskArtifactUpdateEvent;
+        // Use artifact.name or artifact.artifactId for identification
+        console.log(
+          `[${artifactEvent.taskId}] Artifact Update: ${
+            artifactEvent.artifact.name ?? artifactEvent.artifact.artifactId
+          } - Part Count: ${artifactEvent.artifact.parts.length}`
+        );
+      } else {
+        // This could be a direct Message response if the agent doesn't create a task.
+        console.log("Received direct message response in stream:", event);
+      }
+    }
+    console.log(`--- Streaming for message ${messageId} finished ---`);
+  } catch (error) {
+    console.error(`Error during streaming for message ${messageId}:`, error);
+  }
+}
+
+streamTask();
+```
+
+## License
+
+This project is licensed under the terms of the [Apache 2.0 License](https://raw.githubusercontent.com/google-a2a/a2a-python/refs/heads/main/LICENSE).
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/google-a2a/a2a-python/blob/main/CONTRIBUTING.md) for contribution guidelines.
