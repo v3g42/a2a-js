@@ -1,7 +1,7 @@
 import express, { Request, Response, Express } from 'express';
 
 import { A2AError } from "./error.js";
-import { schema, A2AResponse } from "../index.js";
+import { A2AResponse, JSONRPCErrorResponse, JSONRPCSuccessResponse } from "../index.js";
 import { A2ARequestHandler } from "./request_handler/a2a_request_handler.js";
 import { JsonRpcTransportHandler } from "./transports/jsonrpc_transport_handler.js";
 
@@ -40,7 +40,7 @@ export class A2AExpressApp {
 
                 // Check if it's an AsyncGenerator (stream)
                 if (typeof (rpcResponseOrStream as any)?.[Symbol.asyncIterator] === 'function') {
-                    const stream = rpcResponseOrStream as AsyncGenerator<schema.JSONRPCSuccessResponse, void, undefined>;
+                    const stream = rpcResponseOrStream as AsyncGenerator<JSONRPCSuccessResponse, void, undefined>;
 
                     res.setHeader('Content-Type', 'text/event-stream');
                     res.setHeader('Cache-Control', 'no-cache');
@@ -57,7 +57,7 @@ export class A2AExpressApp {
                         console.error(`Error during SSE streaming (request ${req.body?.id}):`, streamError);
                         // If the stream itself throws an error, send a final JSONRPCErrorResponse
                         const a2aError = streamError instanceof A2AError ? streamError : A2AError.internalError(streamError.message || 'Streaming error.');
-                        const errorResponse: schema.JSONRPCErrorResponse = {
+                        const errorResponse: JSONRPCErrorResponse = {
                             jsonrpc: '2.0',
                             id: req.body?.id || null, // Use original request ID if available
                             error: a2aError.toJSONRPCError(),
@@ -82,7 +82,7 @@ export class A2AExpressApp {
             } catch (error: any) { // Catch errors from jsonRpcTransportHandler.handle itself (e.g., initial parse error)
                 console.error("Unhandled error in A2AExpressApp POST handler:", error);
                 const a2aError = error instanceof A2AError ? error : A2AError.internalError('General processing error.');
-                const errorResponse: schema.JSONRPCErrorResponse = {
+                const errorResponse: JSONRPCErrorResponse = {
                     jsonrpc: '2.0',
                     id: req.body?.id || null,
                     error: a2aError.toJSONRPCError(),
