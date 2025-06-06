@@ -1,0 +1,38 @@
+{
+  "name": "a2a-sdk",
+  "version": "1.0.0",
+  "main": "build/src/index.js",
+  "types": "build/src/index.d.ts",
+  "type": "module",
+  "files": [
+    "build/src",
+    "!build/src/**/*.map",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@types/chai": "^5.2.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.13.14",
+    "@types/sinon": "^17.0.4",
+    "chai": "^5.2.0",
+    "gts": "^6.0.2",
+    "mocha": "^11.5.0",
+    "sinon": "^20.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  },
+  "scripts": {
+    "clean": "gts clean",
+    "build": "npx tsc -p .",
+    "pretest": "npm run build",
+    "test": "mocha build/test/**/*.js"
+  },
+  "dependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "uuid": "^11.1.0"
+  }
+}
