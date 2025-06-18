@@ -150,7 +150,7 @@ describe('DefaultRequestHandler as A2ARequestHandler', () => {
         assert.isTrue((mockAgentExecutor as MockAgentExecutor).execute.calledOnce, "AgentExecutor.execute should be called once");
     });
 
-    it('sendMessage: should return a task in a completed state with an artifact', async () => {
+    it('sendMessage: (blocking) should return a task in a completed state with an artifact', async () => {
         const params: MessageSendParams = { 
             message: createTestMessage('msg-2', 'Do a task') 
         };
@@ -204,6 +204,97 @@ describe('DefaultRequestHandler as A2ARequestHandler', () => {
         assert.isArray(taskResult.artifacts);
         assert.lengthOf(taskResult.artifacts!, 1);
         assert.deepEqual(taskResult.artifacts![0], testArtifact);
+    });
+
+    it('sendMessage: should handle agent execution failure for blocking calls', async () => {
+        const errorMessage = 'Agent failed!';
+        (mockAgentExecutor as MockAgentExecutor).execute.rejects(new Error(errorMessage));
+    
+        // Test blocking case
+        const blockingParams: MessageSendParams = {
+            message: createTestMessage('msg-fail-block', 'Test failure blocking'),
+        };
+        
+        const blockingResult = await handler.sendMessage(blockingParams);
+        const blockingTask = blockingResult as Task;
+        assert.equal(blockingTask.kind, 'task', 'Result should be a task');
+        assert.equal(blockingTask.status.state, 'failed', 'Task status should be failed');
+        assert.include((blockingTask.status.message?.parts[0] as any).text, errorMessage, 'Error message should be in the status');
+    });
+
+    it('sendMessage: (non-blocking) should return first task event immediately and process full task in background', async () => {
+        clock = sinon.useFakeTimers();
+        const saveSpy = sinon.spy(mockTaskStore, 'save');
+
+        const params: MessageSendParams = { 
+            message: createTestMessage('msg-nonblock', 'Do a long task'),
+            configuration: { blocking: false, acceptedOutputModes: [] }
+        };
+
+        const taskId = 'task-nonblock-123';
+        const contextId = 'ctx-nonblock-abc';
+
+        (mockAgentExecutor as MockAgentExecutor).execute.callsFake(async (ctx, bus) => {
+            // First event is the task creation, which should be returned immediately
+            bus.publish({
+                id: taskId,
+                contextId,
+                status: { state: "submitted" },
+                kind: 'task'
+            });
+
+            // Simulate work before publishing more events
+            await clock.tickAsync(500);
+
+            bus.publish({
+                taskId,
+                contextId,
+                kind: 'status-update',
+                status: { state: "completed" },
+                final: true
+            });
+            bus.finished();
+        });
+
+        // This call should return as soon as the first 'task' event is published
+        const immediateResult = await handler.sendMessage(params);
+        
+        // Assert that we got the initial task object back right away
+        const taskResult = immediateResult as Task;
+        assert.equal(taskResult.kind, 'task');
+        assert.equal(taskResult.id, taskId);
+        assert.equal(taskResult.status.state, 'submitted', "Should return immediately with 'submitted' state");
+
+        // The background processing should not have completed yet
+        assert.isTrue(saveSpy.calledOnce, "Save should be called for the initial task creation");
+        assert.equal(saveSpy.firstCall.args[0].status.state, 'submitted');
+
+        // Allow the background processing to complete
+        await clock.runAllAsync();
+        
+        // Now, check the final state in the store to ensure background processing finished
+        const finalTask = await mockTaskStore.load(taskId);
+        assert.isDefined(finalTask);
+        assert.equal(finalTask!.status.state, 'completed', "Task should be 'completed' in the store after background processing");
+        assert.isTrue(saveSpy.calledTwice, "Save should be called twice (submitted and completed)");
+        assert.equal(saveSpy.secondCall.args[0].status.state, 'completed');
+    });
+
+    it('sendMessage: should handle agent execution failure for non-blocking calls', async () => {
+        const errorMessage = 'Agent failed!';
+        (mockAgentExecutor as MockAgentExecutor).execute.rejects(new Error(errorMessage));
+    
+        // Test non-blocking case
+        const nonBlockingParams: MessageSendParams = {
+            message: createTestMessage('msg-fail-nonblock', 'Test failure non-blocking'),
+            configuration: { blocking: false, acceptedOutputModes: [] },
+        };
+
+        const nonBlockingResult = await handler.sendMessage(nonBlockingParams);
+        const nonBlockingTask = nonBlockingResult as Task;
+        assert.equal(nonBlockingTask.kind, 'task', 'Result should be a task');
+        assert.equal(nonBlockingTask.status.state, 'failed', 'Task status should be failed');
+        assert.include((nonBlockingTask.status.message?.parts[0] as any).text, errorMessage, 'Error message should be in the status');
     });
 
     it('sendMessageStream: should stream submitted, working, and completed events', async () => {
