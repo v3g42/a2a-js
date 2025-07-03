@@ -3,7 +3,6 @@ __pycache__/
 *.py[cod]
 *.pyc
 *$py.class
-**/dist
 /tmp
 /out-tsc
 /bazel-out
@@ -15,7 +14,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
