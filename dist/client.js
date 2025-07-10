@@ -1,6 +1,6 @@
 import {
   A2AClient
-} from "./chunk-MMZDL2A3.js";
+} from "./chunk-CUGIRVQB.js";
 export {
   A2AClient
 };
